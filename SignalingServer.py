@@ -3,51 +3,46 @@ import json
 
 import websockets
 
-connections = dict()
+connections = []
 
 
 async def handler(websocket):
     async for message in websocket:
+        print('message :', message)
         cMessage = json.loads(message)
-        print(cMessage)
+        peerId = cMessage['peerId']
         if cMessage['eventType'] == 'READY':
-            key = (cMessage['peerId'], cMessage['peerType'])
-            if key in connections:
-                error = dict()
-                error['eventType'] = 'ERROR'
-                error['message'] = f'{key[0]} is already connected to the Server.'
-                await websocket.send(json.dumps(error))
-                raise websockets.ConnectionClosedOK(sent=1001, rcvd=1000)
-            else:
-                await websocket.send(json.dumps({'eventType': 'INFO', 'connections': list(connections)}))
-                connections[key] = websocket
-                await broadcast({'eventType': 'INFO', 'connections': list(connections)})
-        elif cMessage['eventType'] == 'OFFER' or cMessage['eventType'] == 'CANDIDATE':
-            if cMessage['eventType'] == 'CANDIDATE' and len(cMessage['message']['candidate']) == 0:
-                continue
-            await broadcast(json.dumps(cMessage))
-        elif cMessage['eventType'] == 'PRIVATE_MESSAGE':
-            cKey = (cMessage['peerId'], cMessage['peerType'])
-            if cKey in connections:
-                await connections[(cMessage['peerId'], cMessage['peerType'])].send(cMessage['message'])
-            else:
-                await websocket.send({'eventType': 'ERROR', 'message': f'target{cMessage["peerId"]} is not found'})
-        elif cMessage['eventType'] == 'DISCONNECT':
-            key = (cMessage['peerId'], cMessage['peerType'])
-            connections.pop(key)
-            await broadcast({'eventType': 'INFO', 'connections': list(connections),
-                             'message': f'target{cMessage["peerId"]} is disconnected'})
+            if len(connections) != 0:
+                await websocket.send(json.dumps({'eventType': 'PEER', 'connection': connections[0][0]}))
+                await connections[0][1].send(json.dumps({'eventType': 'PEER', 'connection': peerId}))
+            connections.append((peerId, websocket))
+        elif cMessage['eventType'] == 'OFFER':
+            print('OFFER :', cMessage)
+            await sendMessage(peerId, message)
+        elif cMessage['eventType'] == 'ANSWER':
+            print('ANSWER :', cMessage)
+            await sendMessage(peerId, message)
+        elif cMessage['eventType'] == 'CANDIDATE':
+            print('CANDIDATE :', cMessage)
+            await sendMessage(peerId, message)
         else:
             print("ELSE--->")
 
 
-async def broadcast(message):
-    for key in connections:
-        await connections[key].send(json.dumps(message))
+async def sendMessage(peerId, message):
+    if connections[0][0] == peerId:
+        await connections[1][1].send(message)
+    else:
+        await connections[0][1].send(message)
+
+
+# async def broadcast(message):
+#     for key in connections:
+#         await connections[key].send(json.dumps(message))
 
 
 async def main():
-    async with websockets.serve(handler, "192.168.", 8765):
+    async with websockets.serve(handler, "localhost", 8765):
         await asyncio.Future()  # run forever
 
 
